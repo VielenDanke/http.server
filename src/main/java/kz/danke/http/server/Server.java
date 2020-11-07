@@ -40,7 +40,7 @@ public class Server {
         try {
             server = AsynchronousServerSocketChannel.open();
             server.bind(new InetSocketAddress(this.host, this.port));
-            while (true) {
+            while (server.isOpen()) {
                 Future<AsynchronousSocketChannel> channelFuture = server.accept();
                 handleClient(channelFuture);
             }
