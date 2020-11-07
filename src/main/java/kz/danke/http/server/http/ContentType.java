@@ -2,17 +2,11 @@ package kz.danke.http.server.http;
 
 public enum ContentType {
 
-    APPLICATION_JSON("application/json"),
-    TEXT_PLAIN("text/plain"),
-    APPLICATION_XML("application/xml");
+    APPLICATION_JSON,
+    TEXT_PLAIN,
+    APPLICATION_XML;
 
-    private final String value;
-
-    ContentType(String value) {
-        this.value = value;
-    }
-
-    public String value() {
-        return value;
-    }
+    public static final String APPLICATION_JSON_VALUE = "application/json";
+    public static final String APPLICATION_XML_VALUE = "application/xml";
+    public static final String TEXT_PLAIN_VALUE = "text/plain";
 }

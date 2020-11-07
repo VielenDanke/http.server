@@ -96,18 +96,21 @@ public class Server {
                 Object t = handler.getObject();
 
                 MethodHandler annotation = e.getAnnotation(MethodHandler.class);
-
-                if (!request.getHeaders().get("Content-Type").equalsIgnoreCase(annotation.consumes().value())) {
+                if (request.getHeaders().get("Content-Type") == null && !annotation.consumes().isBlank()) {
+                    throw new UnsupportedContentTypeException();
+                } else if (request.getHeaders().get("Content-Type") != null &&
+                        !request.getHeaders().get("Content-Type").equalsIgnoreCase(annotation.consumes()) &&
+                        !annotation.consumes().isBlank()) {
                     throw new UnsupportedContentTypeException();
                 }
                 Object invoke = e.invoke(t);
 
                 switch (annotation.produces()) {
-                    case TEXT_PLAIN -> response.setBody((String) invoke);
-                    case APPLICATION_XML -> response.setBody(XML_MAPPER.writeValueAsString(invoke));
-                    case APPLICATION_JSON -> response.setBody(OBJECT_MAPPER.writeValueAsString(invoke));
+                    case ContentType.TEXT_PLAIN_VALUE -> response.setBody((String) invoke);
+                    case ContentType.APPLICATION_XML_VALUE -> response.setBody(XML_MAPPER.writeValueAsString(invoke));
+                    case ContentType.APPLICATION_JSON_VALUE -> response.setBody(OBJECT_MAPPER.writeValueAsString(invoke));
                 }
-                response.addHeader("Content-Type", annotation.produces().value());
+                response.addHeader("Content-Type", annotation.produces());
             } catch (PathNotFoundException e) {
                 createResponseNotFound(response);
             } catch (UnsupportedContentTypeException e) {
@@ -126,19 +129,19 @@ public class Server {
     private void createResponseNotFound(HttpResponse response) {
         response.setRawStatusCode(400);
         response.setStatus("Not Found");
-        response.addHeader("Content-Type", ContentType.APPLICATION_JSON.value());
+        response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
     }
 
     private void createResponseInternalServerError(HttpResponse response, Exception e) {
         response.setRawStatusCode(500);
         response.setStatus("Internal Server Error");
-        response.addHeader("Content-Type", ContentType.APPLICATION_JSON.value());
+        response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
         response.setBody(e.toString());
     }
 
     private void createUnsupportedContentTypeError(HttpResponse response) {
         response.setRawStatusCode(415);
         response.setStatus("Unsupported Media Type");
-        response.addHeader("Content-Type", ContentType.APPLICATION_JSON.value());
+        response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
     }
 }

@@ -12,11 +12,11 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface MethodHandler {
 
-    String path();
+    String path() default "";
 
     HttpMethod method() default HttpMethod.GET;
 
-    ContentType consumes() default ContentType.TEXT_PLAIN;
+    String consumes() default "";
 
-    ContentType produces() default ContentType.TEXT_PLAIN;
+    String produces() default "";
 }
