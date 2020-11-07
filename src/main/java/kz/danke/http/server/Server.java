@@ -17,12 +17,13 @@ import java.nio.CharBuffer;
 import java.nio.channels.AsynchronousServerSocketChannel;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 
 public class Server {
     private static final int BUFFER_SIZE = 1024;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final XmlMapper XML_MAPPER = new XmlMapper();
+    private static final ExecutorService EXECUTOR_SERVICE = Executors.newVirtualThreadExecutor();
 
     private final HttpAnnotationHandlerFactory httpFactory;
     private final String host;
@@ -42,16 +43,21 @@ public class Server {
             server.bind(new InetSocketAddress(this.host, this.port));
             while (server.isOpen()) {
                 Future<AsynchronousSocketChannel> channelFuture = server.accept();
-                handleClient(channelFuture);
+                AsynchronousSocketChannel channel = channelFuture.join();
+                EXECUTOR_SERVICE.execute(() -> {
+                    try {
+                        handleClient(channel);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private void handleClient(Future<AsynchronousSocketChannel> channelFuture) throws InterruptedException, java.util.concurrent.ExecutionException, java.util.concurrent.TimeoutException, IOException {
-        AsynchronousSocketChannel clientChannel = channelFuture.get();
-
+    private void handleClient(AsynchronousSocketChannel clientChannel) throws InterruptedException, java.util.concurrent.ExecutionException, java.util.concurrent.TimeoutException, IOException {
         while (clientChannel != null && clientChannel.isOpen()) {
             ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
             StringBuffer stringBuffer = new StringBuffer();
