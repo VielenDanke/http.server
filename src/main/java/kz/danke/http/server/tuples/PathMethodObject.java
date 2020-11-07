@@ -1,21 +1,33 @@
 package kz.danke.http.server.tuples;
 
+import kz.danke.http.server.http.HttpMethod;
+
 import java.lang.reflect.Method;
 import java.util.Objects;
 
 public class PathMethodObject {
 
     private String path;
+    private HttpMethod httpMethod;
     private Object object;
     private Method method;
 
     public PathMethodObject() {
     }
 
-    public PathMethodObject(String path, Object object, Method method) {
+    public PathMethodObject(String path, HttpMethod httpMethod, Object object, Method method) {
         this.path = path;
         this.object = object;
         this.method = method;
+        this.httpMethod = httpMethod;
+    }
+
+    public HttpMethod getHttpMethod() {
+        return httpMethod;
+    }
+
+    public void setHttpMethod(HttpMethod httpMethod) {
+        this.httpMethod = httpMethod;
     }
 
     public String getPath() {

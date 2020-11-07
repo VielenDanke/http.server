@@ -6,6 +6,7 @@ import kz.danke.http.server.exception.PathConflictException;
 import kz.danke.http.server.factory.FactoryPacker;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.tuples.MethodObject;
+import kz.danke.http.server.tuples.PathHttpMethodKey;
 import org.reflections.Configuration;
 import org.reflections.Reflections;
 import org.reflections.scanners.*;
@@ -19,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class AnnotationFactoryPacker implements FactoryPacker {
 
-    private final Map<String, MethodObject> pathMethodObjectMap = new ConcurrentHashMap<>();
+    private final Map<PathHttpMethodKey, MethodObject> pathMethodObjectMap = new ConcurrentHashMap<>();
     private final String packageToScan;
 
     public AnnotationFactoryPacker(String packageToScan) {
@@ -63,12 +64,12 @@ public class AnnotationFactoryPacker implements FactoryPacker {
                                 path = objectAnnotation.path() + path;
                             }
 
-                            String methodPath = String.format("%s %s", path, methodAnnotation.method().name());
+                            PathHttpMethodKey key = new PathHttpMethodKey(path, methodAnnotation.method());
 
-                            if (this.pathMethodObjectMap.containsKey(methodPath)) {
+                            if (this.pathMethodObjectMap.containsKey(key)) {
                                 throw new PathConflictException("Path conflict");
                             }
-                            this.pathMethodObjectMap.put(methodPath, new MethodObject(obj, m));
+                            this.pathMethodObjectMap.put(key, new MethodObject(obj, m));
                         })
                 );
 

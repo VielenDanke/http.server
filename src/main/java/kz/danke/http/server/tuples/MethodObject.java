@@ -1,5 +1,7 @@
 package kz.danke.http.server.tuples;
 
+import kz.danke.http.server.http.HttpMethod;
+
 import java.lang.reflect.Method;
 
 public class MethodObject {

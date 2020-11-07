@@ -5,11 +5,13 @@ import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import kz.danke.http.server.annotation.MethodHandler;
 import kz.danke.http.server.exception.PathNotFoundException;
 import kz.danke.http.server.exception.UnsupportedContentTypeException;
+import kz.danke.http.server.exception.UnsupportedHttpMethodException;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.ContentType;
 import kz.danke.http.server.http.HttpRequest;
 import kz.danke.http.server.http.HttpResponse;
 import kz.danke.http.server.tuples.MethodObject;
+import kz.danke.http.server.tuples.PathHttpMethodKey;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -84,18 +86,23 @@ public class Server {
             HttpRequest request = new HttpRequest(stringBuffer.toString());
             HttpResponse response = new HttpResponse();
 
-            String requestMethodPath = String.format("%s %s", request.getUri(), request.getMethod().name());
+            String uri = request.getUri();
 
-            if (requestMethodPath.contains("ico")) {
+            if (uri.contains("ico")) {
                 break;
             }
             try {
-                MethodObject handler = this.httpFactory.getHandler(requestMethodPath);
+                PathHttpMethodKey toFind = new PathHttpMethodKey(request.getUri(), request.getMethod());
+
+                MethodObject handler = this.httpFactory.getHandler(toFind);
 
                 Method e = handler.getMethod();
-                Object t = handler.getObject();
 
                 MethodHandler annotation = e.getAnnotation(MethodHandler.class);
+
+                if (!annotation.method().equals(request.getMethod())) {
+                    throw new UnsupportedHttpMethodException();
+                }
                 if (request.getHeaders().get("Content-Type") == null && !annotation.consumes().isBlank()) {
                     throw new UnsupportedContentTypeException();
                 } else if (request.getHeaders().get("Content-Type") != null &&
@@ -103,6 +110,8 @@ public class Server {
                         !annotation.consumes().isBlank()) {
                     throw new UnsupportedContentTypeException();
                 }
+                Object t = handler.getObject();
+
                 Object invoke = e.invoke(t);
 
                 switch (annotation.produces()) {
@@ -115,6 +124,8 @@ public class Server {
                 createResponseNotFound(response);
             } catch (UnsupportedContentTypeException e) {
                 createUnsupportedContentTypeError(response);
+            } catch (UnsupportedHttpMethodException e) {
+                createMethodNotAllowedError(response);
             } catch (Exception e) {
                 createResponseInternalServerError(response, e);
             }
@@ -142,6 +153,12 @@ public class Server {
     private void createUnsupportedContentTypeError(HttpResponse response) {
         response.setRawStatusCode(415);
         response.setStatus("Unsupported Media Type");
+        response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+    }
+
+    private void createMethodNotAllowedError(HttpResponse response) {
+        response.setRawStatusCode(405);
+        response.setStatus("Method Not Allowed");
         response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
     }
 }
