@@ -3,6 +3,8 @@ package kz.danke.http.server;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import kz.danke.http.server.annotation.MethodHandler;
+import kz.danke.http.server.exception.PathNotFoundException;
+import kz.danke.http.server.exception.UnsupportedContentTypeException;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.ContentType;
 import kz.danke.http.server.http.HttpRequest;
@@ -87,30 +89,31 @@ public class Server {
             if (requestMethodPath.contains("ico")) {
                 break;
             }
-            MethodObject handler = this.httpFactory.getHandler(requestMethodPath);
+            try {
+                MethodObject handler = this.httpFactory.getHandler(requestMethodPath);
 
-            if (handler != null) {
-                try {
-                    Method e = handler.getMethod();
-                    Object t = handler.getObject();
+                Method e = handler.getMethod();
+                Object t = handler.getObject();
 
-                    Object invoke = e.invoke(t);
+                MethodHandler annotation = e.getAnnotation(MethodHandler.class);
 
-                    MethodHandler annotation = e.getAnnotation(MethodHandler.class);
-
-                    switch (annotation.produces()) {
-                        case TEXT_PLAIN -> response.setBody((String) invoke);
-                        case APPLICATION_XML -> response.setBody(XML_MAPPER.writeValueAsString(invoke));
-                        case APPLICATION_JSON -> response.setBody(OBJECT_MAPPER.writeValueAsString(invoke));
-                    }
-                    response.addHeader("Content-Type", annotation.produces().getValue());
-                } catch (Exception e) {
-                    e.printStackTrace();
-
-                    createResponseInternalServerError(response, e);
+                if (!request.getHeaders().get("Content-Type").equalsIgnoreCase(annotation.consumes().value())) {
+                    throw new UnsupportedContentTypeException();
                 }
-            } else {
+                Object invoke = e.invoke(t);
+
+                switch (annotation.produces()) {
+                    case TEXT_PLAIN -> response.setBody((String) invoke);
+                    case APPLICATION_XML -> response.setBody(XML_MAPPER.writeValueAsString(invoke));
+                    case APPLICATION_JSON -> response.setBody(OBJECT_MAPPER.writeValueAsString(invoke));
+                }
+                response.addHeader("Content-Type", annotation.produces().value());
+            } catch (PathNotFoundException e) {
                 createResponseNotFound(response);
+            } catch (UnsupportedContentTypeException e) {
+                createUnsupportedContentTypeError(response);
+            } catch (Exception e) {
+                createResponseInternalServerError(response, e);
             }
             ByteBuffer resp = ByteBuffer.wrap(response.getBytes());
 
@@ -122,15 +125,20 @@ public class Server {
 
     private void createResponseNotFound(HttpResponse response) {
         response.setRawStatusCode(400);
-        response.setStatus("Not found");
-        response.addHeader("Content-Type", "text/html; charset=utf-8");
-        response.setBody("<html><body><h1>Resource not found</h1></body></html>");
+        response.setStatus("Not Found");
+        response.addHeader("Content-Type", ContentType.APPLICATION_JSON.value());
     }
 
     private void createResponseInternalServerError(HttpResponse response, Exception e) {
         response.setRawStatusCode(500);
-        response.setStatus("Internal server error");
-        response.addHeader("Content-Type", ContentType.APPLICATION_JSON.getValue());
+        response.setStatus("Internal Server Error");
+        response.addHeader("Content-Type", ContentType.APPLICATION_JSON.value());
         response.setBody(e.toString());
+    }
+
+    private void createUnsupportedContentTypeError(HttpResponse response) {
+        response.setRawStatusCode(415);
+        response.setStatus("Unsupported Media Type");
+        response.addHeader("Content-Type", ContentType.APPLICATION_JSON.value());
     }
 }

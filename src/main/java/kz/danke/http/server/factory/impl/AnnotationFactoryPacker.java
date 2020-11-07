@@ -53,9 +53,17 @@ public class AnnotationFactoryPacker implements FactoryPacker {
                 .forEach(obj -> Arrays.stream(obj.getClass().getDeclaredMethods())
                         .filter(m -> m.isAnnotationPresent(MethodHandler.class))
                         .forEach(m -> {
-                            MethodHandler annotation = m.getAnnotation(MethodHandler.class);
+                            MethodHandler methodAnnotation = m.getAnnotation(MethodHandler.class);
 
-                            String methodPath = String.format("%s %s", annotation.path(), annotation.method().name());
+                            WebHandler objectAnnotation = obj.getClass().getAnnotation(WebHandler.class);
+
+                            String path = methodAnnotation.path();
+
+                            if (!objectAnnotation.path().isBlank()) {
+                                path = objectAnnotation.path() + path;
+                            }
+
+                            String methodPath = String.format("%s %s", path, methodAnnotation.method().name());
 
                             if (this.pathMethodObjectMap.containsKey(methodPath)) {
                                 throw new PathConflictException("Path conflict");

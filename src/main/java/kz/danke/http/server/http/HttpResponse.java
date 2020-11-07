@@ -39,10 +39,15 @@ public class HttpResponse {
                 .append(NEW_LINE)
         );
 
-        return buffer
-                .append(NEW_LINE)
-                .append(body)
-                .toString();
+        if (body == null || body.isBlank()) {
+            buffer
+                    .append(NEW_LINE);
+        } else {
+            buffer
+                    .append(NEW_LINE)
+                    .append(body);
+        }
+        return buffer.toString();
     }
 
     public byte[] getBytes() {

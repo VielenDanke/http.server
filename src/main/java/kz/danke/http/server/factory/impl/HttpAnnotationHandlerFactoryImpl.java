@@ -1,5 +1,6 @@
 package kz.danke.http.server.factory.impl;
 
+import kz.danke.http.server.exception.PathNotFoundException;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.tuples.MethodObject;
 
@@ -35,6 +36,6 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
         if (isPathContains) {
             return this.pathMethodObjectMap.get(methodPath);
         }
-        return null;
+        throw new PathNotFoundException(String.format("Path %s not found", methodPath));
     }
 }
