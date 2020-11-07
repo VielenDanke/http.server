@@ -6,9 +6,13 @@ import kz.danke.http.server.exception.PathConflictException;
 import kz.danke.http.server.factory.FactoryPacker;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.tuples.MethodObject;
+import org.reflections.Configuration;
 import org.reflections.Reflections;
+import org.reflections.scanners.*;
+import org.reflections.util.ConfigurationBuilder;
 
 import java.lang.reflect.Constructor;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,7 +28,16 @@ public class AnnotationFactoryPacker implements FactoryPacker {
 
     @Override
     public void packaging(HttpAnnotationHandlerFactory httpFactory) throws Exception {
-        Reflections reflections = new Reflections(packageToScan);
+        Configuration configuration = new ConfigurationBuilder().forPackages(packageToScan).setScanners(
+                new TypeAnnotationsScanner(),
+                new FieldAnnotationsScanner(),
+                new MethodParameterNamesScanner(),
+                new MethodAnnotationsScanner(),
+                new MethodParameterScanner(),
+                new SubTypesScanner()
+        );
+
+        Reflections reflections = new Reflections(configuration);
 
         reflections.getTypesAnnotatedWith(WebHandler.class)
                 .parallelStream()

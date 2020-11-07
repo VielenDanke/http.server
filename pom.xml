@@ -11,7 +11,7 @@
 
     <properties>
         <project.version>1.4</project.version>
-        <reflections.version>0.9.12</reflections.version>
+        <reflections.version>0.9.11</reflections.version>
         <jackson-core.version>2.11.3</jackson-core.version>
     </properties>
 
