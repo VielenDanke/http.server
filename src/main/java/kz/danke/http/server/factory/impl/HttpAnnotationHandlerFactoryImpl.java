@@ -33,7 +33,7 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
 
     @Override
     public UrlSuccessResolveHandler getHandler(PathHttpMethodKey methodPath) {
-        Map<Integer, String> indicesMap = new ConcurrentHashMap<>();
+        Map<String, String> indicesMap = new ConcurrentHashMap<>();
 
         return this.pathMethodObjectMap.keySet()
                 .parallelStream()
@@ -49,7 +49,7 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
                 .orElseThrow(RuntimeException::new);
     }
 
-    private boolean comparing(PathHttpMethodKey handlerPath, PathHttpMethodKey incomingPath, Map<Integer, String> map) {
+    private boolean comparing(PathHttpMethodKey handlerPath, PathHttpMethodKey incomingPath, Map<String, String> map) {
         if (!handlerPath.getHttpMethod().equals(incomingPath.getHttpMethod())) {
             return false;
         }
@@ -59,7 +59,7 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
         if (incomingPathSplit.length == handlerPathSplit.length) {
             for (int i = 0; i < handlerPathSplit.length; i++) {
                 if (handlerPathSplit[i].contains("#")) {
-                    map.put(i, handlerPathSplit[i]);
+                    map.put(handlerPathSplit[i], incomingPathSplit[i]);
                     continue;
                 }
                 if (!handlerPathSplit[i].equals(incomingPathSplit[i])) {

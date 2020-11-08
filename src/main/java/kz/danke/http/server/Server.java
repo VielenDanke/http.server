@@ -3,6 +3,7 @@ package kz.danke.http.server;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import kz.danke.http.server.annotation.MethodHandler;
+import kz.danke.http.server.annotation.MethodVariable;
 import kz.danke.http.server.exception.PathNotFoundException;
 import kz.danke.http.server.exception.UnsupportedContentTypeException;
 import kz.danke.http.server.exception.UnsupportedHttpMethodException;
@@ -14,13 +15,16 @@ import kz.danke.http.server.tuples.PathHttpMethodKey;
 import kz.danke.http.server.tuples.UrlSuccessResolveHandler;
 
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.AsynchronousServerSocketChannel;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.*;
 
@@ -112,6 +116,8 @@ public class Server {
                     throw new UnsupportedContentTypeException();
                 }
                 Object t = handler.getMethodObject().getObject();
+
+                Parameter[] parameters = e.getParameters();
 
                 Object invoke = e.invoke(t);
 

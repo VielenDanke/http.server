@@ -4,10 +4,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class UrlSuccessResolveHandler {
-    
+
     private PathHttpMethodKey pathHttpMethodKey;
     private MethodObject methodObject;
-    private Map<Integer, String> indicesVariableNameMap;
+    private Map<String, String> indicesVariableNameMap;
 
     public UrlSuccessResolveHandler() {
         this.indicesVariableNameMap = new ConcurrentHashMap<>();
@@ -19,19 +19,19 @@ public class UrlSuccessResolveHandler {
         this.indicesVariableNameMap = new ConcurrentHashMap<>();
     }
 
-    public void addIndicesMap(Map<Integer, String> map) {
+    public void addIndicesMap(Map<String, String> map) {
         this.indicesVariableNameMap.putAll(map);
     }
 
-    public void addIndicesVariable(Integer index, String name) {
-        this.indicesVariableNameMap.put(index, name);
+    public void addIndicesVariable(String key, String name) {
+        this.indicesVariableNameMap.put(key, name);
     }
 
-    public Map<Integer, String> getIndicesVariableNameMap() {
+    public Map<String, String> getIndicesVariableNameMap() {
         return indicesVariableNameMap;
     }
 
-    public void setIndicesVariableNameMap(Map<Integer, String> indicesVariableNameMap) {
+    public void setIndicesVariableNameMap(Map<String, String> indicesVariableNameMap) {
         this.indicesVariableNameMap = indicesVariableNameMap;
     }
 
