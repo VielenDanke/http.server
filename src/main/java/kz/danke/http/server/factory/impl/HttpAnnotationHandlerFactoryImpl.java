@@ -35,6 +35,12 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
     public UrlSuccessResolveHandler getHandler(PathHttpMethodKey methodPath) {
         Map<String, String> indicesMap = new ConcurrentHashMap<>();
 
+        if (this.pathMethodObjectMap.containsKey(methodPath)) {
+            return new UrlSuccessResolveHandler(
+                    methodPath, this.pathMethodObjectMap.get(methodPath)
+            );
+        }
+
         return this.pathMethodObjectMap.keySet()
                 .parallelStream()
                 .filter(pathHttpMethodKey -> this.comparing(pathHttpMethodKey, methodPath, indicesMap))
@@ -52,6 +58,9 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
     private boolean comparing(PathHttpMethodKey handlerPath, PathHttpMethodKey incomingPath, Map<String, String> map) {
         if (!handlerPath.getHttpMethod().equals(incomingPath.getHttpMethod())) {
             return false;
+        }
+        if (handlerPath.getPath().equalsIgnoreCase(incomingPath.getPath())) {
+            return true;
         }
         String[] handlerPathSplit = handlerPath.getPath().split("/");
         String[] incomingPathSplit = incomingPath.getPath().split("/");
