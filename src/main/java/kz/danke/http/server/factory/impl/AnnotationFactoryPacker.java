@@ -13,7 +13,6 @@ import org.reflections.scanners.*;
 import org.reflections.util.ConfigurationBuilder;
 
 import java.lang.reflect.Constructor;
-import java.net.URL;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

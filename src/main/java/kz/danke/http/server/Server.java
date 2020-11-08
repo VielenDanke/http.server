@@ -1,12 +1,10 @@
 package kz.danke.http.server;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
-import kz.danke.http.server.annotation.MethodHandler;
-import kz.danke.http.server.annotation.MethodVariable;
-import kz.danke.http.server.exception.PathNotFoundException;
-import kz.danke.http.server.exception.UnsupportedContentTypeException;
-import kz.danke.http.server.exception.UnsupportedHttpMethodException;
+import kz.danke.http.server.annotation.*;
+import kz.danke.http.server.exception.*;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.ContentType;
 import kz.danke.http.server.http.HttpRequest;
@@ -27,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 public class Server {
     private static final int BUFFER_SIZE = 1024;
@@ -97,6 +96,10 @@ public class Server {
                 break;
             }
             try {
+                if (uri.contains("?")) {
+                    int indexQuestion = uri.indexOf("?");
+                    uri = uri.substring(0, indexQuestion);
+                }
                 PathHttpMethodKey toFind = new PathHttpMethodKey(uri, request.getMethod());
 
                 UrlSuccessResolveHandler handler = this.httpFactory.getHandler(toFind);
@@ -108,10 +111,12 @@ public class Server {
                 if (!annotation.method().equals(request.getMethod())) {
                     throw new UnsupportedHttpMethodException();
                 }
-                if (request.getHeaders().get("Content-Type") == null && !annotation.consumes().isBlank()) {
+                String contentTypeHeader = request.getHeaders().get("Content-Type");
+
+                if (contentTypeHeader == null && !annotation.consumes().isBlank()) {
                     throw new UnsupportedContentTypeException();
-                } else if (request.getHeaders().get("Content-Type") != null &&
-                        !request.getHeaders().get("Content-Type").equalsIgnoreCase(annotation.consumes()) &&
+                } else if (contentTypeHeader != null &&
+                        !contentTypeHeader.equalsIgnoreCase(annotation.consumes()) &&
                         !annotation.consumes().isBlank()) {
                     throw new UnsupportedContentTypeException();
                 }
@@ -119,7 +124,92 @@ public class Server {
 
                 Parameter[] parameters = e.getParameters();
 
-                Object invoke = e.invoke(t);
+                Map<String, String> indicesVariableNameMap = handler.getIndicesVariableNameMap();
+
+//                if (indicesVariableNameMap.size() + 1 < parameters.length) {
+//                    throw new ArgsMismatchException(
+//                            String.format("Arguments in method %s expected to be equals %d", e.getName(), indicesVariableNameMap.size())
+//                    );
+//                }
+
+                Object[] objects = Arrays.stream(parameters)
+                        .parallel()
+                        .filter(parameter -> parameter.getDeclaredAnnotation(MethodVariable.class) != null ||
+                                parameter.getDeclaredAnnotation(MethodBody.class) != null ||
+                                parameter.getDeclaredAnnotation(MethodParam.class) != null)
+                        .map(parameter -> {
+                            if (parameter.getAnnotation(MethodVariable.class) != null) {
+                                MethodVariable methodVariable = parameter.getAnnotation(MethodVariable.class);
+
+                                String key = methodVariable.name();
+
+                                return indicesVariableNameMap.get(key);
+                            } else if (parameter.getAnnotation(MethodParam.class) != null) {
+                                MethodParam methodParam = parameter.getAnnotation(MethodParam.class);
+
+                                String key = methodParam.name();
+
+                                String uriToParse = request.getUri();
+
+                                boolean isContainsParam = uriToParse.contains(key);
+
+                                if (isContainsParam) {
+                                    int indexQuestion = uriToParse.indexOf("?");
+
+                                    String paramUriPart = uriToParse.substring(indexQuestion);
+
+                                    if (paramUriPart.contains("&")) {
+                                        String[] paramPairs = paramUriPart.split("&");
+
+                                        return Arrays.stream(paramPairs)
+                                                .filter(param -> param.contains(key))
+                                                .map(param -> {
+                                                    int equalIndex = param.indexOf("=");
+
+                                                    return param.substring(equalIndex + 1);
+                                                })
+                                                .collect(Collectors.joining(","));
+                                    } else {
+                                        return paramUriPart.split("=")[1];
+                                    }
+                                }
+                                return null;
+                            }
+                            MethodBody methodBody = parameter.getAnnotation(MethodBody.class);
+
+                            if (!methodBody.name().isBlank()) {
+                                if (!request.getBody().contains(methodBody.name())) {
+                                    throw new BodyNotFoundException();
+                                }
+                            }
+                            if (contentTypeHeader != null) {
+                                final Class<?> type = parameter.getType();
+
+                                switch (contentTypeHeader) {
+                                    case ContentType.APPLICATION_JSON_VALUE -> {
+                                        try {
+                                            return OBJECT_MAPPER.readValue(request.getBody(), type);
+                                        } catch (JsonProcessingException jsonProcessingException) {
+                                            throw new RuntimeException();
+                                        }
+                                    }
+                                    case ContentType.APPLICATION_XML_VALUE -> {
+                                        try {
+                                            return XML_MAPPER.readValue(request.getBody(), type);
+                                        } catch (JsonProcessingException jsonProcessingException) {
+                                            throw new RuntimeException();
+                                        }
+                                    }
+                                    case ContentType.TEXT_PLAIN_VALUE -> {
+                                        return request.getBody();
+                                    }
+                                }
+                            }
+                            return response.getBody();
+                        })
+                        .toArray(Object[]::new);
+
+                Object invoke = e.invoke(t, objects);
 
                 switch (annotation.produces()) {
                     case ContentType.TEXT_PLAIN_VALUE -> response.setBody((String) invoke);

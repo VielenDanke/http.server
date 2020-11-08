@@ -59,7 +59,7 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
         if (incomingPathSplit.length == handlerPathSplit.length) {
             for (int i = 0; i < handlerPathSplit.length; i++) {
                 if (handlerPathSplit[i].contains("#")) {
-                    map.put(handlerPathSplit[i], incomingPathSplit[i]);
+                    map.put(handlerPathSplit[i].replace("#", ""), incomingPathSplit[i]);
                     continue;
                 }
                 if (!handlerPathSplit[i].equals(incomingPathSplit[i])) {
