@@ -10,8 +10,8 @@ import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.ContentType;
 import kz.danke.http.server.http.HttpRequest;
 import kz.danke.http.server.http.HttpResponse;
-import kz.danke.http.server.tuples.MethodObject;
 import kz.danke.http.server.tuples.PathHttpMethodKey;
+import kz.danke.http.server.tuples.UrlSuccessResolveHandler;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -21,6 +21,7 @@ import java.nio.CharBuffer;
 import java.nio.channels.AsynchronousServerSocketChannel;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.*;
 
 public class Server {
@@ -92,11 +93,11 @@ public class Server {
                 break;
             }
             try {
-                PathHttpMethodKey toFind = new PathHttpMethodKey(request.getUri(), request.getMethod());
+                PathHttpMethodKey toFind = new PathHttpMethodKey(uri, request.getMethod());
 
-                MethodObject handler = this.httpFactory.getHandler(toFind);
+                UrlSuccessResolveHandler handler = this.httpFactory.getHandler(toFind);
 
-                Method e = handler.getMethod();
+                Method e = handler.getMethodObject().getMethod();
 
                 MethodHandler annotation = e.getAnnotation(MethodHandler.class);
 
@@ -110,7 +111,7 @@ public class Server {
                         !annotation.consumes().isBlank()) {
                     throw new UnsupportedContentTypeException();
                 }
-                Object t = handler.getObject();
+                Object t = handler.getMethodObject().getObject();
 
                 Object invoke = e.invoke(t);
 

@@ -1,10 +1,10 @@
 package kz.danke.http.server.factory.impl;
 
-import kz.danke.http.server.exception.PathNotFoundException;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.HttpMethod;
 import kz.danke.http.server.tuples.MethodObject;
 import kz.danke.http.server.tuples.PathHttpMethodKey;
+import kz.danke.http.server.tuples.UrlSuccessResolveHandler;
 
 import java.lang.reflect.Method;
 import java.util.Map;
@@ -32,17 +32,24 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
     }
 
     @Override
-    public MethodObject getHandler(PathHttpMethodKey methodPath) {
-        PathHttpMethodKey methodKey = this.pathMethodObjectMap.keySet()
-                .parallelStream()
-                .filter(pathHttpMethodKey -> this.comparing(pathHttpMethodKey, methodPath))
-                .findAny()
-                .orElseThrow(RuntimeException::new);
+    public UrlSuccessResolveHandler getHandler(PathHttpMethodKey methodPath) {
+        Map<Integer, String> indicesMap = new ConcurrentHashMap<>();
 
-        return this.pathMethodObjectMap.get(methodKey);
+        return this.pathMethodObjectMap.keySet()
+                .parallelStream()
+                .filter(pathHttpMethodKey -> this.comparing(pathHttpMethodKey, methodPath, indicesMap))
+                .findAny()
+                .map(pathHttpMethodKey -> {
+                    UrlSuccessResolveHandler urlSuccessResolveHandler = new UrlSuccessResolveHandler(
+                            pathHttpMethodKey, this.pathMethodObjectMap.get(pathHttpMethodKey)
+                    );
+                    urlSuccessResolveHandler.addIndicesMap(indicesMap);
+                    return urlSuccessResolveHandler;
+                })
+                .orElseThrow(RuntimeException::new);
     }
 
-    private boolean comparing(PathHttpMethodKey handlerPath, PathHttpMethodKey incomingPath) {
+    private boolean comparing(PathHttpMethodKey handlerPath, PathHttpMethodKey incomingPath, Map<Integer, String> map) {
         if (!handlerPath.getHttpMethod().equals(incomingPath.getHttpMethod())) {
             return false;
         }
@@ -52,6 +59,7 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
         if (incomingPathSplit.length == handlerPathSplit.length) {
             for (int i = 0; i < handlerPathSplit.length; i++) {
                 if (handlerPathSplit[i].contains("#")) {
+                    map.put(i, handlerPathSplit[i]);
                     continue;
                 }
                 if (!handlerPathSplit[i].equals(incomingPathSplit[i])) {
@@ -63,5 +71,7 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
         }
         return true;
     }
+
+
 
 }

@@ -3,11 +3,10 @@ package kz.danke.http.server.factory;
 import kz.danke.http.server.http.HttpMethod;
 import kz.danke.http.server.tuples.MethodObject;
 import kz.danke.http.server.tuples.PathHttpMethodKey;
-import kz.danke.http.server.tuples.PathMethodObject;
+import kz.danke.http.server.tuples.UrlSuccessResolveHandler;
 
 import java.lang.reflect.Method;
 import java.util.Map;
-import java.util.Set;
 
 public interface HttpAnnotationHandlerFactory {
 
@@ -15,5 +14,5 @@ public interface HttpAnnotationHandlerFactory {
 
     void addHandlers(Map<PathHttpMethodKey, MethodObject> handlerMap);
 
-    MethodObject getHandler(PathHttpMethodKey methodPath);
+    UrlSuccessResolveHandler getHandler(PathHttpMethodKey methodPath);
 }
