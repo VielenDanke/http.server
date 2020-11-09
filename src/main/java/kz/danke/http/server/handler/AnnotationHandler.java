@@ -32,7 +32,7 @@ public class AnnotationHandler {
     }
 
     @MethodHandler(path = "/post", produces = ContentType.APPLICATION_JSON_VALUE, method = HttpMethod.POST)
-    public Book postBook(@MethodBody Book book) throws JsonProcessingException {
+    public Book postBook(@MethodBody Book book) {
         return book;
     }
 }
