@@ -16,6 +16,10 @@ public class HttpRequest {
     private final Map<String, String> headers = new ConcurrentHashMap<>();
     private final String body;
 
+    public HttpRequest(StringBuffer message) {
+        this(message.toString());
+    }
+
     public HttpRequest(String message) {
         this.message = message;
 

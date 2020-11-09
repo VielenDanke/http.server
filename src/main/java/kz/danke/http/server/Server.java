@@ -3,17 +3,27 @@ package kz.danke.http.server;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
-import kz.danke.http.server.annotation.*;
-import kz.danke.http.server.exception.*;
+import kz.danke.http.server.annotation.MethodBody;
+import kz.danke.http.server.annotation.MethodHandler;
+import kz.danke.http.server.annotation.MethodParam;
+import kz.danke.http.server.annotation.MethodVariable;
+import kz.danke.http.server.exception.BodyNotFoundException;
+import kz.danke.http.server.exception.PathNotFoundException;
+import kz.danke.http.server.exception.UnsupportedContentTypeException;
+import kz.danke.http.server.exception.UnsupportedHttpMethodException;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.ContentType;
+import kz.danke.http.server.http.HttpMethod;
 import kz.danke.http.server.http.HttpRequest;
 import kz.danke.http.server.http.HttpResponse;
+import kz.danke.http.server.tuples.InvokeProduces;
 import kz.danke.http.server.tuples.PathHttpMethodKey;
 import kz.danke.http.server.tuples.UrlSuccessResolveHandler;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.IOException;
-import java.lang.annotation.Annotation;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.net.InetSocketAddress;
@@ -50,15 +60,8 @@ public class Server {
             server = AsynchronousServerSocketChannel.open();
             server.bind(new InetSocketAddress(this.host, this.port));
             while (server.isOpen()) {
-                Future<AsynchronousSocketChannel> channelFuture = server.accept();
-                AsynchronousSocketChannel channel = channelFuture.join();
-                EXECUTOR_SERVICE.execute(() -> {
-                    try {
-                        handleClient(channel);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                });
+                AsynchronousSocketChannel asynchronousSocketChannel = server.accept().join();
+                handleClient(asynchronousSocketChannel);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -66,13 +69,16 @@ public class Server {
     }
 
     private void handleClient(AsynchronousSocketChannel clientChannel) throws InterruptedException, java.util.concurrent.ExecutionException, java.util.concurrent.TimeoutException, IOException {
-        while (clientChannel != null && clientChannel.isOpen()) {
+        if (clientChannel != null && clientChannel.isOpen()) {
             ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
             StringBuffer stringBuffer = new StringBuffer();
+
             boolean keepReading = true;
 
             while (keepReading) {
-                int readResult = clientChannel.read(buffer).get();
+                int readResult = 0;
+
+                readResult = clientChannel.read(buffer).get();
 
                 keepReading = readResult == BUFFER_SIZE;
 
@@ -84,154 +90,188 @@ public class Server {
 
                 buffer.clear();
             }
+
             if (stringBuffer.isEmpty()) {
-                break;
+                return;
             }
-            HttpRequest request = new HttpRequest(stringBuffer.toString());
-            HttpResponse response = new HttpResponse();
-
-            String uri = request.getUri();
-
-            if (uri.contains("ico")) {
-                break;
+            if (stringBuffer.toString().contains("ico")) {
+                return;
             }
-            try {
-                if (uri.contains("?")) {
-                    int indexQuestion = uri.indexOf("?");
-                    uri = uri.substring(0, indexQuestion);
-                }
-                PathHttpMethodKey toFind = new PathHttpMethodKey(uri, request.getMethod());
 
-                UrlSuccessResolveHandler handler = this.httpFactory.getHandler(toFind);
+            Mono<HttpResponse> httpResponseMono = Mono.just(new HttpResponse());
 
-                Method e = handler.getMethodObject().getMethod();
+            Mono<HttpRequest> httpRequestMono = Mono.just(stringBuffer)
+                    .map(HttpRequest::new)
+                    .publishOn(Schedulers.fromExecutorService(EXECUTOR_SERVICE));
 
-                MethodHandler annotation = e.getAnnotation(MethodHandler.class);
+            Mono<UrlSuccessResolveHandler> urlSuccessResolveHandlerMono = httpRequestMono
+                    .map(httpRequest -> {
+                        String uri = httpRequest.getUri();
+                        if (uri.contains("?")) {
+                            int indexQuestion = uri.indexOf("?");
+                            return new PathHttpMethodKey(uri.substring(0, indexQuestion), httpRequest.getMethod());
+                        } else {
+                            return new PathHttpMethodKey(uri, httpRequest.getMethod());
+                        }
+                    })
+                    .map(this.httpFactory::getHandler)
+                    .publishOn(Schedulers.fromExecutorService(EXECUTOR_SERVICE));
 
-                if (!annotation.method().equals(request.getMethod())) {
-                    throw new UnsupportedHttpMethodException();
-                }
-                String contentTypeHeader = request.getHeaders().get("Content-Type");
+            urlSuccessResolveHandlerMono
+                    .map(handler -> handler.getMethodObject().getMethod())
+                    .map(method -> method.getAnnotation(MethodHandler.class))
+                    .zipWith(httpRequestMono)
+                    .doOnNext(tuple -> {
+                        MethodHandler annotation = tuple.getT1();
+                        HttpRequest request = tuple.getT2();
 
-                if (contentTypeHeader == null && !annotation.consumes().isBlank()) {
-                    throw new UnsupportedContentTypeException();
-                } else if (contentTypeHeader != null &&
-                        !contentTypeHeader.equalsIgnoreCase(annotation.consumes()) &&
-                        !annotation.consumes().isBlank()) {
-                    throw new UnsupportedContentTypeException();
-                }
-                Object t = handler.getMethodObject().getObject();
+                        if (!annotation.method().equals(request.getMethod())) {
+                            throw new UnsupportedHttpMethodException();
+                        }
+                        String contentTypeHeader = request.getHeaders().get("Content-Type");
 
-                Parameter[] parameters = e.getParameters();
+                        if (contentTypeHeader == null && !annotation.consumes().isBlank()) {
+                            throw new UnsupportedContentTypeException();
+                        } else if (contentTypeHeader != null &&
+                                !contentTypeHeader.equalsIgnoreCase(annotation.consumes()) &&
+                                !annotation.consumes().isBlank()) {
+                            throw new UnsupportedContentTypeException();
+                        }
+                    })
+                    .publishOn(Schedulers.fromExecutorService(EXECUTOR_SERVICE));
 
-                Map<String, String> indicesVariableNameMap = handler.getIndicesVariableNameMap();
+            urlSuccessResolveHandlerMono
+                    .zipWith(httpRequestMono)
+                    .map(tuple -> {
+                        UrlSuccessResolveHandler handler = tuple.getT1();
+                        HttpRequest request = tuple.getT2();
 
-//                if (indicesVariableNameMap.size() + 1 < parameters.length) {
-//                    throw new ArgsMismatchException(
-//                            String.format("Arguments in method %s expected to be equals %d", e.getName(), indicesVariableNameMap.size())
-//                    );
-//                }
+                        Map<String, String> indicesVariableNameMap = handler.getIndicesVariableNameMap();
+                        Method method = handler.getMethodObject().getMethod();
+                        Object object = handler.getMethodObject().getObject();
 
-                Object[] objects = Arrays.stream(parameters)
-                        .parallel()
-                        .filter(parameter -> parameter.getDeclaredAnnotation(MethodVariable.class) != null ||
-                                parameter.getDeclaredAnnotation(MethodBody.class) != null ||
-                                parameter.getDeclaredAnnotation(MethodParam.class) != null)
-                        .map(parameter -> {
-                            if (parameter.getAnnotation(MethodVariable.class) != null) {
-                                MethodVariable methodVariable = parameter.getAnnotation(MethodVariable.class);
+                        MethodHandler annotation = method.getAnnotation(MethodHandler.class);
 
-                                String key = methodVariable.name();
+                        Parameter[] parameters = method.getParameters();
 
-                                return indicesVariableNameMap.get(key);
-                            } else if (parameter.getAnnotation(MethodParam.class) != null) {
-                                MethodParam methodParam = parameter.getAnnotation(MethodParam.class);
+                        Object[] objects = injectAnnotationObjectToParameter(request, parameters, indicesVariableNameMap);
 
-                                String key = methodParam.name();
-
-                                String uriToParse = request.getUri();
-
-                                boolean isContainsParam = uriToParse.contains(key);
-
-                                if (isContainsParam) {
-                                    int indexQuestion = uriToParse.indexOf("?");
-
-                                    String paramUriPart = uriToParse.substring(indexQuestion);
-
-                                    if (paramUriPart.contains("&")) {
-                                        String[] paramPairs = paramUriPart.split("&");
-
-                                        return Arrays.stream(paramPairs)
-                                                .filter(param -> param.contains(key))
-                                                .map(param -> {
-                                                    int equalIndex = param.indexOf("=");
-
-                                                    return param.substring(equalIndex + 1);
-                                                })
-                                                .collect(Collectors.joining(","));
-                                    } else {
-                                        return paramUriPart.split("=")[1];
-                                    }
-                                }
-                                return null;
+                        Object invoke;
+                        try {
+                            invoke = method.invoke(object, objects);
+                            return new InvokeProduces(invoke, annotation.produces());
+                        } catch (Exception e) {
+                            throw new RuntimeException();
+                        }
+                    })
+                    .zipWith(httpResponseMono)
+                    .map(tuple -> {
+                        InvokeProduces invokeProduces = tuple.getT1();
+                        HttpResponse response = tuple.getT2();
+                        try {
+                            Object invoke = invokeProduces.getInvokeResult();
+                            String contentTypeProduces = invokeProduces.getContentTypeProduces();
+                            switch (contentTypeProduces) {
+                                case ContentType.TEXT_PLAIN_VALUE -> response.setBody((String) invoke);
+                                case ContentType.APPLICATION_XML_VALUE -> response.setBody(XML_MAPPER.writeValueAsString(invoke));
+                                case ContentType.APPLICATION_JSON_VALUE -> response.setBody(OBJECT_MAPPER.writeValueAsString(invoke));
                             }
-                            MethodBody methodBody = parameter.getAnnotation(MethodBody.class);
-
-                            if (!methodBody.name().isBlank()) {
-                                if (!request.getBody().contains(methodBody.name())) {
-                                    throw new BodyNotFoundException();
-                                }
-                            }
-                            if (contentTypeHeader != null) {
-                                final Class<?> type = parameter.getType();
-
-                                switch (contentTypeHeader) {
-                                    case ContentType.APPLICATION_JSON_VALUE -> {
-                                        try {
-                                            return OBJECT_MAPPER.readValue(request.getBody(), type);
-                                        } catch (JsonProcessingException jsonProcessingException) {
-                                            throw new RuntimeException();
-                                        }
-                                    }
-                                    case ContentType.APPLICATION_XML_VALUE -> {
-                                        try {
-                                            return XML_MAPPER.readValue(request.getBody(), type);
-                                        } catch (JsonProcessingException jsonProcessingException) {
-                                            throw new RuntimeException();
-                                        }
-                                    }
-                                    case ContentType.TEXT_PLAIN_VALUE -> {
-                                        return request.getBody();
-                                    }
-                                }
-                            }
-                            return response.getBody();
-                        })
-                        .toArray(Object[]::new);
-
-                Object invoke = e.invoke(t, objects);
-
-                switch (annotation.produces()) {
-                    case ContentType.TEXT_PLAIN_VALUE -> response.setBody((String) invoke);
-                    case ContentType.APPLICATION_XML_VALUE -> response.setBody(XML_MAPPER.writeValueAsString(invoke));
-                    case ContentType.APPLICATION_JSON_VALUE -> response.setBody(OBJECT_MAPPER.writeValueAsString(invoke));
-                }
-                response.addHeader("Content-Type", annotation.produces());
-            } catch (PathNotFoundException e) {
-                createResponseNotFound(response);
-            } catch (UnsupportedContentTypeException e) {
-                createUnsupportedContentTypeError(response);
-            } catch (UnsupportedHttpMethodException e) {
-                createMethodNotAllowedError(response);
-            } catch (Exception e) {
-                createResponseInternalServerError(response, e);
-            }
-            ByteBuffer resp = ByteBuffer.wrap(response.getBytes());
-
-            clientChannel.write(resp);
-
-            clientChannel.close();
+                            response.addHeader("Content-Type", contentTypeProduces);
+                        } catch (Exception e) {
+                            throw new RuntimeException();
+                        }
+                        return response;
+                    })
+                    .map(response -> ByteBuffer.wrap(response.getBytes()))
+                    .doOnNext(byteBuffer -> {
+                        buffer.clear();
+                        clientChannel.write(byteBuffer);
+                    })
+                    .subscribeOn(Schedulers.fromExecutorService(EXECUTOR_SERVICE))
+                    .subscribe();
         }
+    }
+
+    private Object[] injectAnnotationObjectToParameter(HttpRequest request,
+                                                       Parameter[] parameters,
+                                                       Map<String, String> indicesVariableNameMap) {
+        final String contentType = "Content-Type";
+        final String contentTypeHeader = request.getHeaders().get(contentType);
+
+        return Arrays.stream(parameters)
+                .parallel()
+                .filter(parameter -> parameter.getDeclaredAnnotation(MethodVariable.class) != null ||
+                        parameter.getDeclaredAnnotation(MethodBody.class) != null ||
+                        parameter.getDeclaredAnnotation(MethodParam.class) != null)
+                .map(parameter -> {
+                    if (parameter.getAnnotation(MethodVariable.class) != null) {
+                        MethodVariable methodVariable = parameter.getAnnotation(MethodVariable.class);
+
+                        String key = methodVariable.name();
+
+                        return indicesVariableNameMap.get(key);
+                    } else if (parameter.getAnnotation(MethodParam.class) != null) {
+                        MethodParam methodParam = parameter.getAnnotation(MethodParam.class);
+
+                        String key = methodParam.name();
+
+                        String uriToParse = request.getUri();
+
+                        boolean isContainsParam = uriToParse.contains(key);
+
+                        if (isContainsParam) {
+                            int indexQuestion = uriToParse.indexOf("?");
+
+                            String paramUriPart = uriToParse.substring(indexQuestion);
+
+                            if (paramUriPart.contains("&")) {
+                                String[] paramPairs = paramUriPart.split("&");
+
+                                return Arrays.stream(paramPairs)
+                                        .filter(param -> param.contains(key))
+                                        .map(param -> {
+                                            int equalIndex = param.indexOf("=");
+
+                                            return param.substring(equalIndex + 1);
+                                        })
+                                        .collect(Collectors.joining(","));
+                            }
+                            return paramUriPart.split("=")[1];
+                        }
+                    }
+                    MethodBody methodBody = parameter.getAnnotation(MethodBody.class);
+
+                    if (!methodBody.name().isBlank()) {
+                        if (!request.getBody().contains(methodBody.name())) {
+                            throw new BodyNotFoundException();
+                        }
+                    }
+                    if (contentTypeHeader != null) {
+                        final Class<?> type = parameter.getType();
+
+                        switch (contentTypeHeader) {
+                            case ContentType.APPLICATION_JSON_VALUE -> {
+                                try {
+                                    return OBJECT_MAPPER.readValue(request.getBody(), type);
+                                } catch (JsonProcessingException jsonProcessingException) {
+                                    throw new RuntimeException();
+                                }
+                            }
+                            case ContentType.APPLICATION_XML_VALUE -> {
+                                try {
+                                    return XML_MAPPER.readValue(request.getBody(), type);
+                                } catch (JsonProcessingException jsonProcessingException) {
+                                    throw new RuntimeException();
+                                }
+                            }
+                            case ContentType.TEXT_PLAIN_VALUE -> {
+                                return request.getBody();
+                            }
+                        }
+                    }
+                    return request.getBody();
+                })
+                .toArray(Object[]::new);
     }
 
     private void createResponseNotFound(HttpResponse response) {
