@@ -31,7 +31,7 @@ public class AnnotationHandler {
         return key;
     }
 
-    @MethodHandler(path = "/post", produces = ContentType.APPLICATION_JSON_VALUE, method = HttpMethod.POST)
+    @MethodHandler(path = "/post", consumes = ContentType.APPLICATION_JSON_VALUE, produces = ContentType.APPLICATION_JSON_VALUE, method = HttpMethod.POST)
     public Book postBook(@MethodBody Book book) {
         return book;
     }

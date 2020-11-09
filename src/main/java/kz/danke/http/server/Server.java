@@ -65,10 +65,10 @@ public class Server {
     }
 
     private void handleClient(AsynchronousSocketChannel clientChannel, HttpAnnotationHandlerFactory httpFactory) throws InterruptedException, java.util.concurrent.ExecutionException, java.util.concurrent.TimeoutException, IOException {
-        if (clientChannel != null && clientChannel.isOpen()) {
-            ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
+        CompletableFuture.runAsync(() -> {
+            if (clientChannel != null && clientChannel.isOpen()) {
+                ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
 
-            CompletableFuture.runAsync(() -> {
                 clientChannel.read(buffer, null, new CompletionHandler<>() {
 
                     @Override
@@ -264,7 +264,7 @@ public class Server {
                         response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
                     }
                 });
-            }, EXECUTOR_SERVICE);
-        }
+            }
+        }, EXECUTOR_SERVICE);
     }
 }
