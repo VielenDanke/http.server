@@ -30,9 +30,7 @@ import java.nio.channels.CompletionHandler;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 public class Server {
@@ -70,201 +68,203 @@ public class Server {
         if (clientChannel != null && clientChannel.isOpen()) {
             ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
 
-            clientChannel.read(buffer, null, new CompletionHandler<>() {
+            CompletableFuture.runAsync(() -> {
+                clientChannel.read(buffer, null, new CompletionHandler<>() {
 
-                @Override
-                public void completed(Integer result, Object attachment) {
-                    CompletableFuture<HttpResponse> httpResponseCompletableFuture = CompletableFuture.supplyAsync(HttpResponse::new, EXECUTOR_SERVICE);
+                    @Override
+                    public void completed(Integer result, Object attachment) {
+                        CompletableFuture<HttpResponse> httpResponseCompletableFuture = CompletableFuture.supplyAsync(HttpResponse::new, EXECUTOR_SERVICE);
 
-                    CompletableFuture<HttpRequest> httpRequestCompletableFuture = CompletableFuture
-                            .supplyAsync(() -> buffer, EXECUTOR_SERVICE)
-                            .thenApply(ByteBuffer::flip)
-                            .thenApply(StandardCharsets.UTF_8::decode)
-                            .thenApply(StringBuffer::new)
-                            .thenApply(HttpRequest::new);
+                        CompletableFuture<HttpRequest> httpRequestCompletableFuture = CompletableFuture
+                                .supplyAsync(() -> buffer, EXECUTOR_SERVICE)
+                                .thenApplyAsync(ByteBuffer::flip, EXECUTOR_SERVICE)
+                                .thenApplyAsync(StandardCharsets.UTF_8::decode, EXECUTOR_SERVICE)
+                                .thenApplyAsync(StringBuffer::new, EXECUTOR_SERVICE)
+                                .thenApplyAsync(HttpRequest::new, EXECUTOR_SERVICE);
 
-                    CompletableFuture<UrlSuccessResolveHandler> urlSuccessResolveHandlerCompletableFuture = httpRequestCompletableFuture
-                            .thenApply(httpRequest -> {
-                                String uri = httpRequest.getUri();
-                                if (uri.contains("?")) {
-                                    int indexQuestion = uri.indexOf("?");
-                                    return new PathHttpMethodKey(uri.substring(0, indexQuestion), httpRequest.getMethod());
-                                } else {
-                                    return new PathHttpMethodKey(uri, httpRequest.getMethod());
-                                }
-                            })
-                            .thenApply(httpFactory::getHandler);
-
-                    CompletableFuture<MethodHandler> methodHandlerCompletableFuture = urlSuccessResolveHandlerCompletableFuture
-                            .thenApply(handler -> handler.getMethodObject().getMethod())
-                            .thenApply(method -> method.getAnnotation(MethodHandler.class))
-                            .thenCombine(httpRequestCompletableFuture, (annotation, request) -> {
-                                if (!annotation.method().equals(request.getMethod())) {
-                                    throw new UnsupportedHttpMethodException();
-                                }
-                                String contentTypeHeader = request.getHeaders().get("Content-Type");
-
-                                if (contentTypeHeader == null && !annotation.consumes().isBlank()) {
-                                    throw new UnsupportedContentTypeException();
-                                } else if (contentTypeHeader != null &&
-                                        !contentTypeHeader.equalsIgnoreCase(annotation.consumes()) &&
-                                        !annotation.consumes().isBlank()) {
-                                    throw new UnsupportedContentTypeException();
-                                }
-                                return annotation;
-                            });
-
-                    urlSuccessResolveHandlerCompletableFuture
-                            .thenCombine(httpRequestCompletableFuture, (handler, request) -> {
-                                Map<String, String> indicesVariableNameMap = handler.getIndicesVariableNameMap();
-                                Method method = handler.getMethodObject().getMethod();
-                                Object object = handler.getMethodObject().getObject();
-
-                                MethodHandler annotation = method.getAnnotation(MethodHandler.class);
-
-                                Parameter[] parameters = method.getParameters();
-
-                                Object[] objects = injectAnnotationObjectToParameter(request, parameters, indicesVariableNameMap);
-
-                                Object invoke;
-                                try {
-                                    invoke = method.invoke(object, objects);
-                                    return new InvokeProduces(invoke, annotation.produces());
-                                } catch (Exception e) {
-                                    throw new RuntimeException();
-                                }
-                            })
-                            .thenCombine(httpResponseCompletableFuture, (invokeProduces, response) -> {
-                                try {
-                                    Object invoke = invokeProduces.getInvokeResult();
-                                    String contentTypeProduces = invokeProduces.getContentTypeProduces();
-                                    switch (contentTypeProduces) {
-                                        case ContentType.TEXT_PLAIN_VALUE -> response.setBody((String) invoke);
-                                        case ContentType.APPLICATION_XML_VALUE -> response.setBody(XML_MAPPER.writeValueAsString(invoke));
-                                        case ContentType.APPLICATION_JSON_VALUE -> response.setBody(OBJECT_MAPPER.writeValueAsString(invoke));
+                        CompletableFuture<UrlSuccessResolveHandler> urlSuccessResolveHandlerCompletableFuture = httpRequestCompletableFuture
+                                .thenApplyAsync(httpRequest -> {
+                                    String uri = httpRequest.getUri();
+                                    if (uri.contains("?")) {
+                                        int indexQuestion = uri.indexOf("?");
+                                        return new PathHttpMethodKey(uri.substring(0, indexQuestion), httpRequest.getMethod());
+                                    } else {
+                                        return new PathHttpMethodKey(uri, httpRequest.getMethod());
                                     }
-                                    response.addHeader("Content-Type", contentTypeProduces);
-                                } catch (Exception e) {
-                                    throw new RuntimeException();
-                                }
-                                return response;
-                            })
-                            .thenApply(httpResponse -> ByteBuffer.wrap(httpResponse.getBytes()))
-                            .thenAccept(clientChannel::write);
-                }
+                                }, EXECUTOR_SERVICE)
+                                .thenApplyAsync(httpFactory::getHandler, EXECUTOR_SERVICE);
 
-                @Override
-                public void failed(Throwable exc, Object attachment) {
+                        CompletableFuture<MethodHandler> methodHandlerCompletableFuture = urlSuccessResolveHandlerCompletableFuture
+                                .thenApplyAsync(handler -> handler.getMethodObject().getMethod(), EXECUTOR_SERVICE)
+                                .thenApplyAsync(method -> method.getAnnotation(MethodHandler.class), EXECUTOR_SERVICE)
+                                .thenCombineAsync(httpRequestCompletableFuture, (annotation, request) -> {
+                                    if (!annotation.method().equals(request.getMethod())) {
+                                        throw new UnsupportedHttpMethodException();
+                                    }
+                                    String contentTypeHeader = request.getHeaders().get("Content-Type");
 
-                }
+                                    if (contentTypeHeader == null && !annotation.consumes().isBlank()) {
+                                        throw new UnsupportedContentTypeException();
+                                    } else if (contentTypeHeader != null &&
+                                            !contentTypeHeader.equalsIgnoreCase(annotation.consumes()) &&
+                                            !annotation.consumes().isBlank()) {
+                                        throw new UnsupportedContentTypeException();
+                                    }
+                                    return annotation;
+                                }, EXECUTOR_SERVICE);
 
-                private Object[] injectAnnotationObjectToParameter(HttpRequest request,
-                                                                   Parameter[] parameters,
-                                                                   Map<String, String> indicesVariableNameMap) {
-                    final String contentType = "Content-Type";
-                    final String contentTypeHeader = request.getHeaders().get(contentType);
+                        urlSuccessResolveHandlerCompletableFuture
+                                .thenCombineAsync(httpRequestCompletableFuture, (handler, request) -> {
+                                    Map<String, String> indicesVariableNameMap = handler.getIndicesVariableNameMap();
+                                    Method method = handler.getMethodObject().getMethod();
+                                    Object object = handler.getMethodObject().getObject();
 
-                    return Arrays.stream(parameters)
-                            .parallel()
-                            .filter(parameter -> parameter.getDeclaredAnnotation(MethodVariable.class) != null ||
-                                    parameter.getDeclaredAnnotation(MethodBody.class) != null ||
-                                    parameter.getDeclaredAnnotation(MethodParam.class) != null)
-                            .map(parameter -> {
-                                if (parameter.getAnnotation(MethodVariable.class) != null) {
-                                    MethodVariable methodVariable = parameter.getAnnotation(MethodVariable.class);
+                                    MethodHandler annotation = method.getAnnotation(MethodHandler.class);
 
-                                    String key = methodVariable.name();
+                                    Parameter[] parameters = method.getParameters();
 
-                                    return indicesVariableNameMap.get(key);
-                                } else if (parameter.getAnnotation(MethodParam.class) != null) {
-                                    MethodParam methodParam = parameter.getAnnotation(MethodParam.class);
+                                    Object[] objects = injectAnnotationObjectToParameter(request, parameters, indicesVariableNameMap);
 
-                                    String key = methodParam.name();
-
-                                    String uriToParse = request.getUri();
-
-                                    boolean isContainsParam = uriToParse.contains(key);
-
-                                    if (isContainsParam) {
-                                        int indexQuestion = uriToParse.indexOf("?");
-
-                                        String paramUriPart = uriToParse.substring(indexQuestion);
-
-                                        if (paramUriPart.contains("&")) {
-                                            String[] paramPairs = paramUriPart.split("&");
-
-                                            return Arrays.stream(paramPairs)
-                                                    .filter(param -> param.contains(key))
-                                                    .map(param -> {
-                                                        int equalIndex = param.indexOf("=");
-
-                                                        return param.substring(equalIndex + 1);
-                                                    })
-                                                    .collect(Collectors.joining(","));
+                                    Object invoke;
+                                    try {
+                                        invoke = method.invoke(object, objects);
+                                        return new InvokeProduces(invoke, annotation.produces());
+                                    } catch (Exception e) {
+                                        throw new RuntimeException();
+                                    }
+                                }, EXECUTOR_SERVICE)
+                                .thenCombineAsync(httpResponseCompletableFuture, (invokeProduces, response) -> {
+                                    try {
+                                        Object invoke = invokeProduces.getInvokeResult();
+                                        String contentTypeProduces = invokeProduces.getContentTypeProduces();
+                                        switch (contentTypeProduces) {
+                                            case ContentType.TEXT_PLAIN_VALUE -> response.setBody((String) invoke);
+                                            case ContentType.APPLICATION_XML_VALUE -> response.setBody(XML_MAPPER.writeValueAsString(invoke));
+                                            case ContentType.APPLICATION_JSON_VALUE -> response.setBody(OBJECT_MAPPER.writeValueAsString(invoke));
                                         }
-                                        return paramUriPart.split("=")[1];
+                                        response.addHeader("Content-Type", contentTypeProduces);
+                                    } catch (Exception e) {
+                                        throw new RuntimeException();
                                     }
-                                }
-                                MethodBody methodBody = parameter.getAnnotation(MethodBody.class);
+                                    return response;
+                                }, EXECUTOR_SERVICE)
+                                .thenApplyAsync(httpResponse -> ByteBuffer.wrap(httpResponse.getBytes()), EXECUTOR_SERVICE)
+                                .thenAcceptAsync(clientChannel::write, EXECUTOR_SERVICE);
+                    }
 
-                                if (!methodBody.name().isBlank()) {
-                                    if (!request.getBody().contains(methodBody.name())) {
-                                        throw new BodyNotFoundException();
+                    @Override
+                    public void failed(Throwable exc, Object attachment) {
+
+                    }
+
+                    private Object[] injectAnnotationObjectToParameter(HttpRequest request,
+                                                                       Parameter[] parameters,
+                                                                       Map<String, String> indicesVariableNameMap) {
+                        final String contentType = "Content-Type";
+                        final String contentTypeHeader = request.getHeaders().get(contentType);
+
+                        return Arrays.stream(parameters)
+                                .parallel()
+                                .filter(parameter -> parameter.getDeclaredAnnotation(MethodVariable.class) != null ||
+                                        parameter.getDeclaredAnnotation(MethodBody.class) != null ||
+                                        parameter.getDeclaredAnnotation(MethodParam.class) != null)
+                                .map(parameter -> {
+                                    if (parameter.getAnnotation(MethodVariable.class) != null) {
+                                        MethodVariable methodVariable = parameter.getAnnotation(MethodVariable.class);
+
+                                        String key = methodVariable.name();
+
+                                        return indicesVariableNameMap.get(key);
+                                    } else if (parameter.getAnnotation(MethodParam.class) != null) {
+                                        MethodParam methodParam = parameter.getAnnotation(MethodParam.class);
+
+                                        String key = methodParam.name();
+
+                                        String uriToParse = request.getUri();
+
+                                        boolean isContainsParam = uriToParse.contains(key);
+
+                                        if (isContainsParam) {
+                                            int indexQuestion = uriToParse.indexOf("?");
+
+                                            String paramUriPart = uriToParse.substring(indexQuestion);
+
+                                            if (paramUriPart.contains("&")) {
+                                                String[] paramPairs = paramUriPart.split("&");
+
+                                                return Arrays.stream(paramPairs)
+                                                        .filter(param -> param.contains(key))
+                                                        .map(param -> {
+                                                            int equalIndex = param.indexOf("=");
+
+                                                            return param.substring(equalIndex + 1);
+                                                        })
+                                                        .collect(Collectors.joining(","));
+                                            }
+                                            return paramUriPart.split("=")[1];
+                                        }
                                     }
-                                }
-                                if (contentTypeHeader != null) {
-                                    final Class<?> type = parameter.getType();
+                                    MethodBody methodBody = parameter.getAnnotation(MethodBody.class);
 
-                                    switch (contentTypeHeader) {
-                                        case ContentType.APPLICATION_JSON_VALUE -> {
-                                            try {
-                                                return OBJECT_MAPPER.readValue(request.getBody(), type);
-                                            } catch (JsonProcessingException jsonProcessingException) {
-                                                throw new RuntimeException();
+                                    if (!methodBody.name().isBlank()) {
+                                        if (!request.getBody().contains(methodBody.name())) {
+                                            throw new BodyNotFoundException();
+                                        }
+                                    }
+                                    if (contentTypeHeader != null) {
+                                        final Class<?> type = parameter.getType();
+
+                                        switch (contentTypeHeader) {
+                                            case ContentType.APPLICATION_JSON_VALUE -> {
+                                                try {
+                                                    return OBJECT_MAPPER.readValue(request.getBody(), type);
+                                                } catch (JsonProcessingException jsonProcessingException) {
+                                                    throw new RuntimeException();
+                                                }
+                                            }
+                                            case ContentType.APPLICATION_XML_VALUE -> {
+                                                try {
+                                                    return XML_MAPPER.readValue(request.getBody(), type);
+                                                } catch (JsonProcessingException jsonProcessingException) {
+                                                    throw new RuntimeException();
+                                                }
+                                            }
+                                            case ContentType.TEXT_PLAIN_VALUE -> {
+                                                return request.getBody();
                                             }
                                         }
-                                        case ContentType.APPLICATION_XML_VALUE -> {
-                                            try {
-                                                return XML_MAPPER.readValue(request.getBody(), type);
-                                            } catch (JsonProcessingException jsonProcessingException) {
-                                                throw new RuntimeException();
-                                            }
-                                        }
-                                        case ContentType.TEXT_PLAIN_VALUE -> {
-                                            return request.getBody();
-                                        }
                                     }
-                                }
-                                return request.getBody();
-                            })
-                            .toArray(Object[]::new);
-                }
+                                    return request.getBody();
+                                })
+                                .toArray(Object[]::new);
+                    }
 
-                private void createResponseNotFound(HttpResponse response) {
-                    response.setRawStatusCode(400);
-                    response.setStatus("Not Found");
-                    response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
-                }
+                    private void createResponseNotFound(HttpResponse response) {
+                        response.setRawStatusCode(400);
+                        response.setStatus("Not Found");
+                        response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+                    }
 
-                private void createResponseInternalServerError(HttpResponse response, Exception e) {
-                    response.setRawStatusCode(500);
-                    response.setStatus("Internal Server Error");
-                    response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
-                    response.setBody(e.toString());
-                }
+                    private void createResponseInternalServerError(HttpResponse response, Exception e) {
+                        response.setRawStatusCode(500);
+                        response.setStatus("Internal Server Error");
+                        response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+                        response.setBody(e.toString());
+                    }
 
-                private void createUnsupportedContentTypeError(HttpResponse response) {
-                    response.setRawStatusCode(415);
-                    response.setStatus("Unsupported Media Type");
-                    response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
-                }
+                    private void createUnsupportedContentTypeError(HttpResponse response) {
+                        response.setRawStatusCode(415);
+                        response.setStatus("Unsupported Media Type");
+                        response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+                    }
 
-                private void createMethodNotAllowedError(HttpResponse response) {
-                    response.setRawStatusCode(405);
-                    response.setStatus("Method Not Allowed");
-                    response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
-                }
-            });
+                    private void createMethodNotAllowedError(HttpResponse response) {
+                        response.setRawStatusCode(405);
+                        response.setStatus("Method Not Allowed");
+                        response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+                    }
+                });
+            }, EXECUTOR_SERVICE);
         }
     }
 }
