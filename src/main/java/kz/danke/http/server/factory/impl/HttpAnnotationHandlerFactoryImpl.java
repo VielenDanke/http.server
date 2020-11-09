@@ -1,5 +1,6 @@
 package kz.danke.http.server.factory.impl;
 
+import kz.danke.http.server.exception.StaticElementException;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.HttpMethod;
 import kz.danke.http.server.tuples.MethodObject;
@@ -61,6 +62,9 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
         }
         if (handlerPath.getPath().equalsIgnoreCase(incomingPath.getPath())) {
             return true;
+        }
+        if (incomingPath.getPath().contains("ico")) {
+            throw new StaticElementException("Static element processing");
         }
         String[] handlerPathSplit = handlerPath.getPath().split("/");
         String[] incomingPathSplit = incomingPath.getPath().split("/");
