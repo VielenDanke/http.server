@@ -183,10 +183,7 @@ public class Server {
                         return response;
                     })
                     .map(response -> ByteBuffer.wrap(response.getBytes()))
-                    .doOnNext(byteBuffer -> {
-                        buffer.clear();
-                        clientChannel.write(byteBuffer);
-                    })
+                    .doOnNext(clientChannel::write)
                     .subscribeOn(Schedulers.fromExecutorService(EXECUTOR_SERVICE))
                     .subscribe();
         }
