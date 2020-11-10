@@ -12,4 +12,12 @@ public class Book {
         this.id = id;
         this.name = name;
     }
+
+    @Override
+    public String toString() {
+        return "Book{" +
+                "id=" + id +
+                ", name='" + name + '\'' +
+                '}';
+    }
 }

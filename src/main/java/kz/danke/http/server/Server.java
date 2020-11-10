@@ -21,7 +21,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.channels.AsynchronousServerSocketChannel;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.CompletionHandler;
@@ -201,16 +200,20 @@ public class Server {
 
                         return Arrays.stream(parameters)
                                 .parallel()
-                                .filter(parameter -> parameter.getDeclaredAnnotation(MethodVariable.class) != null ||
-                                        parameter.getDeclaredAnnotation(MethodBody.class) != null ||
-                                        parameter.getDeclaredAnnotation(MethodParam.class) != null)
                                 .map(parameter -> {
                                     if (parameter.getAnnotation(MethodVariable.class) != null) {
                                         MethodVariable methodVariable = parameter.getAnnotation(MethodVariable.class);
 
                                         String key = methodVariable.name();
 
-                                        return indicesVariableNameMap.get(key);
+                                        String methodVariableValue = indicesVariableNameMap.get(key);
+
+                                        if (methodVariableValue == null) {
+                                            throw new MethodPathVariableNameNotMatchesException(
+                                                    String.format("Method variable with name %s not found", key)
+                                            );
+                                        }
+                                        return methodVariableValue;
                                     } else if (parameter.getAnnotation(MethodParam.class) != null) {
                                         MethodParam methodParam = parameter.getAnnotation(MethodParam.class);
 
@@ -239,38 +242,55 @@ public class Server {
                                             }
                                             return paramUriPart.split("=")[1];
                                         }
-                                    }
-                                    MethodBody methodBody = parameter.getAnnotation(MethodBody.class);
+                                    } else if (parameter.getType().isAssignableFrom(HttpRequest.class)) {
+                                        return request;
+                                    } else if (parameter.getAnnotation(MethodBody.class) != null) {
+                                        MethodBody methodBody = parameter.getAnnotation(MethodBody.class);
 
-                                    if (!methodBody.name().isBlank()) {
-                                        if (!request.getBody().contains(methodBody.name())) {
-                                            throw new BodyNotFoundException();
-                                        }
-                                    }
-                                    if (contentTypeHeader != null) {
-                                        final Class<?> type = parameter.getType();
-
-                                        switch (contentTypeHeader) {
-                                            case ContentType.APPLICATION_JSON_VALUE -> {
-                                                try {
-                                                    return OBJECT_MAPPER.readValue(request.getBody(), type);
-                                                } catch (JsonProcessingException jsonProcessingException) {
-                                                    throw new RuntimeException();
-                                                }
-                                            }
-                                            case ContentType.APPLICATION_XML_VALUE -> {
-                                                try {
-                                                    return XML_MAPPER.readValue(request.getBody(), type);
-                                                } catch (JsonProcessingException jsonProcessingException) {
-                                                    throw new RuntimeException();
-                                                }
-                                            }
-                                            case ContentType.TEXT_PLAIN_VALUE -> {
-                                                return request.getBody();
+                                        if (!methodBody.name().isBlank()) {
+                                            if (!request.getBody().contains(methodBody.name())) {
+                                                throw new BodyNotFoundException(
+                                                        String.format("Body with name %s not found", methodBody.name())
+                                                );
                                             }
                                         }
+                                        if (contentTypeHeader != null) {
+                                            final Class<?> type = parameter.getType();
+
+                                            switch (contentTypeHeader) {
+                                                case ContentType.APPLICATION_JSON_VALUE -> {
+                                                    try {
+                                                        return OBJECT_MAPPER.readValue(request.getBody(), type);
+                                                    } catch (JsonProcessingException ex) {
+                                                        throw new RequestBodyConvertingException(
+                                                                String.format(
+                                                                        "Cannot convert body %s to parameter %s",
+                                                                        request.getBody(),
+                                                                        methodBody.annotationType().getName()
+                                                                )
+                                                        );
+                                                    }
+                                                }
+                                                case ContentType.APPLICATION_XML_VALUE -> {
+                                                    try {
+                                                        return XML_MAPPER.readValue(request.getBody(), type);
+                                                    } catch (JsonProcessingException ex) {
+                                                        throw new RequestBodyConvertingException(
+                                                                String.format(
+                                                                        "Cannot convert body %s to parameter %s",
+                                                                        request.getBody(),
+                                                                        methodBody.annotationType().getName()
+                                                                )
+                                                        );
+                                                    }
+                                                }
+                                                case ContentType.TEXT_PLAIN_VALUE -> {
+                                                    return request.getBody();
+                                                }
+                                            }
+                                        }
                                     }
-                                    return request.getBody();
+                                    return null;
                                 })
                                 .toArray(Object[]::new);
                     }
@@ -293,23 +313,39 @@ public class Server {
                         response.setRawStatusCode(500);
                         response.setStatus("Internal Server Error");
                         response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
-                        response.setBody(
-                                e.getLocalizedMessage() != null && !e.getLocalizedMessage().isBlank() ?
-                                        e.getLocalizedMessage() :
-                                        "Something went wrong"
-                        );
+                        if (e != null) {
+                            response.setBody(
+                                    e.getLocalizedMessage() != null && !e.getLocalizedMessage().isBlank() ?
+                                            e.getLocalizedMessage() :
+                                            "Something went wrong"
+                            );
+                        }
                     }
 
-                    private void createUnsupportedContentTypeError(HttpResponse response) {
+                    private void createUnsupportedContentTypeError(HttpResponse response, Throwable e) {
                         response.setRawStatusCode(415);
                         response.setStatus("Unsupported Media Type");
                         response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+                        if (e != null) {
+                            response.setBody(
+                                    e.getLocalizedMessage() != null && !e.getLocalizedMessage().isBlank() ?
+                                            e.getLocalizedMessage() :
+                                            "Something went wrong"
+                            );
+                        }
                     }
 
-                    private void createMethodNotAllowedError(HttpResponse response) {
+                    private void createMethodNotAllowedError(HttpResponse response, Throwable e) {
                         response.setRawStatusCode(405);
                         response.setStatus("Method Not Allowed");
                         response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+                        if (e != null) {
+                            response.setBody(
+                                    e.getLocalizedMessage() != null && !e.getLocalizedMessage().isBlank() ?
+                                            e.getLocalizedMessage() :
+                                            "Something went wrong"
+                            );
+                        }
                     }
 
                     private void createResponseDependsOnException(Throwable e, HttpResponse response) {
@@ -317,17 +353,11 @@ public class Server {
 
                         if (ex.getClass().isAssignableFrom(PathNotFoundException.class)) {
                             this.createResponseNotFound(response, ex);
-                        }
-                        if (ex.getClass().isAssignableFrom(MethodInvocationException.class)) {
-                            this.createResponseInternalServerError(response, ex);
-                        }
-                        if (ex.getClass().isAssignableFrom(ArgsMismatchException.class)) {
-                            this.createResponseInternalServerError(response, ex);
-                        }
-                        if (ex.getClass().isAssignableFrom(UnsupportedContentTypeException.class)) {
-                            this.createResponseInternalServerError(response, ex);
-                        }
-                        if (ex.getClass().isAssignableFrom(UnsupportedHttpMethodException.class)) {
+                        } else if (ex.getClass().isAssignableFrom(UnsupportedHttpMethodException.class)) {
+                            this.createMethodNotAllowedError(response, ex);
+                        } else if (ex.getClass().isAssignableFrom(UnsupportedContentTypeException.class)) {
+                            this.createUnsupportedContentTypeError(response, e);
+                        } else {
                             this.createResponseInternalServerError(response, ex);
                         }
                     }

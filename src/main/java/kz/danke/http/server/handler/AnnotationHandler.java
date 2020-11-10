@@ -5,9 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import kz.danke.http.server.annotation.*;
 import kz.danke.http.server.http.ContentType;
 import kz.danke.http.server.http.HttpMethod;
+import kz.danke.http.server.http.HttpRequest;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @WebHandler(path = "/books")
 public class AnnotationHandler {
@@ -34,5 +37,20 @@ public class AnnotationHandler {
     @MethodHandler(path = "/post", consumes = ContentType.APPLICATION_JSON_VALUE, produces = ContentType.APPLICATION_JSON_VALUE, method = HttpMethod.POST)
     public Book postBook(@MethodBody Book book) {
         return book;
+    }
+
+    @MethodHandler(path = "/multi-param/#name", produces = ContentType.APPLICATION_JSON_VALUE, method = HttpMethod.POST)
+    public Map<String, String> getMultiParam(@MethodVariable(name = "name") String name,
+                                             String boom,
+                                             @MethodBody Book book,
+                                             @MethodParam(name = "key") String value,
+                                             HttpRequest request) {
+        System.out.println(boom);
+        return new HashMap<>() {{
+            put("path variable", name);
+            put("book", book.toString());
+            put("param", value);
+            put("request", request.getUri());
+        }};
     }
 }
