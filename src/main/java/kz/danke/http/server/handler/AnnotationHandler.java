@@ -53,4 +53,15 @@ public class AnnotationHandler {
             put("request", request.getUri());
         }};
     }
+
+    @MethodHandler(path = "/#id/book/#name", produces = ContentType.APPLICATION_JSON_VALUE, method = HttpMethod.GET)
+    public Map<String, String> producing(
+            @MethodVariable(name = "id") String id,
+            @MethodVariable(name = "name") String name
+    ) {
+        return new HashMap<>() {{
+            put("id", id);
+            put("name", name);
+        }};
+    }
 }
