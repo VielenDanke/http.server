@@ -1,5 +1,6 @@
 package kz.danke.http.server.factory.impl;
 
+import kz.danke.http.server.exception.PathNotFoundException;
 import kz.danke.http.server.exception.StaticElementException;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.HttpMethod;
@@ -53,7 +54,9 @@ public class HttpAnnotationHandlerFactoryImpl implements HttpAnnotationHandlerFa
                     urlSuccessResolveHandler.addIndicesMap(indicesMap);
                     return urlSuccessResolveHandler;
                 })
-                .orElseThrow(RuntimeException::new);
+                .orElseThrow(() -> new PathNotFoundException(
+                        String.format("Path %s with method %s not found", methodPath.getPath(), methodPath.getHttpMethod().name())
+                ));
     }
 
     private boolean comparing(PathHttpMethodKey handlerPath, PathHttpMethodKey incomingPath, Map<String, String> map) {

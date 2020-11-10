@@ -7,9 +7,7 @@ import kz.danke.http.server.annotation.MethodBody;
 import kz.danke.http.server.annotation.MethodHandler;
 import kz.danke.http.server.annotation.MethodParam;
 import kz.danke.http.server.annotation.MethodVariable;
-import kz.danke.http.server.exception.BodyNotFoundException;
-import kz.danke.http.server.exception.UnsupportedContentTypeException;
-import kz.danke.http.server.exception.UnsupportedHttpMethodException;
+import kz.danke.http.server.exception.*;
 import kz.danke.http.server.factory.HttpAnnotationHandlerFactory;
 import kz.danke.http.server.http.ContentType;
 import kz.danke.http.server.http.HttpRequest;
@@ -99,16 +97,28 @@ public class Server {
                                 .thenApplyAsync(method -> method.getAnnotation(MethodHandler.class), EXECUTOR_SERVICE)
                                 .thenCombineAsync(httpRequestCompletableFuture, (annotation, request) -> {
                                     if (!annotation.method().equals(request.getMethod())) {
-                                        throw new UnsupportedHttpMethodException();
+                                        throw new UnsupportedHttpMethodException(
+                                                String.format(
+                                                        "Method %s is not supported", request.getMethod().name()
+                                                )
+                                        );
                                     }
                                     String contentTypeHeader = request.getHeaders().get("Content-Type");
 
                                     if (contentTypeHeader == null && !annotation.consumes().isBlank()) {
-                                        throw new UnsupportedContentTypeException();
+                                        throw new UnsupportedContentTypeException(
+                                                String.format("Content-Type expected to be %s", annotation.consumes())
+                                        );
                                     } else if (contentTypeHeader != null &&
                                             !contentTypeHeader.equalsIgnoreCase(annotation.consumes()) &&
                                             !annotation.consumes().isBlank()) {
-                                        throw new UnsupportedContentTypeException();
+                                        throw new UnsupportedContentTypeException(
+                                                String.format(
+                                                        "Content-Type %s is not supported, need %s",
+                                                        contentTypeHeader,
+                                                        annotation.consumes()
+                                                )
+                                        );
                                     }
                                     return annotation;
                                 }, EXECUTOR_SERVICE);
@@ -130,7 +140,9 @@ public class Server {
                                         invoke = method.invoke(object, objects);
                                         return new InvokeProduces(invoke, annotation.produces());
                                     } catch (Exception e) {
-                                        throw new RuntimeException();
+                                        throw new MethodInvocationException(
+                                                String.format("Method %s cannot be invoked", method.getName())
+                                        );
                                     }
                                 }, EXECUTOR_SERVICE)
                                 .thenCombineAsync(httpResponseCompletableFuture, (invokeProduces, response) -> {
@@ -149,7 +161,31 @@ public class Server {
                                     return response;
                                 }, EXECUTOR_SERVICE)
                                 .thenApplyAsync(httpResponse -> ByteBuffer.wrap(httpResponse.getBytes()), EXECUTOR_SERVICE)
-                                .thenAcceptAsync(clientChannel::write, EXECUTOR_SERVICE);
+                                .thenAcceptAsync(byteBuffer -> {
+                                    clientChannel.write(byteBuffer);
+
+                                    try {
+                                        clientChannel.close();
+                                    } catch (IOException e) {
+                                        throw new ConnectionCloseException("Connection close failed");
+                                    }
+                                }, EXECUTOR_SERVICE)
+                                .exceptionallyAsync(ex -> {
+                                    HttpResponse response = new HttpResponse();
+
+                                    this.createResponseDependsOnException(ex, response);
+
+                                    ByteBuffer errorByteBuffer = ByteBuffer.wrap(response.getBytes());
+
+                                    clientChannel.write(errorByteBuffer);
+
+                                    try {
+                                        clientChannel.close();
+                                    } catch (IOException e) {
+                                        throw new ConnectionCloseException("Connection close failed");
+                                    }
+                                    return null;
+                                }, EXECUTOR_SERVICE);
                     }
 
                     @Override
@@ -239,17 +275,29 @@ public class Server {
                                 .toArray(Object[]::new);
                     }
 
-                    private void createResponseNotFound(HttpResponse response) {
+                    private void createResponseNotFound(HttpResponse response, Throwable e) {
                         response.setRawStatusCode(400);
                         response.setStatus("Not Found");
                         response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+
+                        if (e != null) {
+                            response.setBody(
+                                    e.getLocalizedMessage() != null && !e.getLocalizedMessage().isBlank() ?
+                                            e.getLocalizedMessage() :
+                                            "Something went wrong"
+                            );
+                        }
                     }
 
-                    private void createResponseInternalServerError(HttpResponse response, Exception e) {
+                    private void createResponseInternalServerError(HttpResponse response, Throwable e) {
                         response.setRawStatusCode(500);
                         response.setStatus("Internal Server Error");
                         response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
-                        response.setBody(e.toString());
+                        response.setBody(
+                                e.getLocalizedMessage() != null && !e.getLocalizedMessage().isBlank() ?
+                                        e.getLocalizedMessage() :
+                                        "Something went wrong"
+                        );
                     }
 
                     private void createUnsupportedContentTypeError(HttpResponse response) {
@@ -262,6 +310,26 @@ public class Server {
                         response.setRawStatusCode(405);
                         response.setStatus("Method Not Allowed");
                         response.addHeader("Content-Type", ContentType.APPLICATION_JSON_VALUE);
+                    }
+
+                    private void createResponseDependsOnException(Throwable e, HttpResponse response) {
+                        Throwable ex = e.getCause();
+
+                        if (ex.getClass().isAssignableFrom(PathNotFoundException.class)) {
+                            this.createResponseNotFound(response, ex);
+                        }
+                        if (ex.getClass().isAssignableFrom(MethodInvocationException.class)) {
+                            this.createResponseInternalServerError(response, ex);
+                        }
+                        if (ex.getClass().isAssignableFrom(ArgsMismatchException.class)) {
+                            this.createResponseInternalServerError(response, ex);
+                        }
+                        if (ex.getClass().isAssignableFrom(UnsupportedContentTypeException.class)) {
+                            this.createResponseInternalServerError(response, ex);
+                        }
+                        if (ex.getClass().isAssignableFrom(UnsupportedHttpMethodException.class)) {
+                            this.createResponseInternalServerError(response, ex);
+                        }
                     }
                 });
             }
