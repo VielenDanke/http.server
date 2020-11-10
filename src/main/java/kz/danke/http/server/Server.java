@@ -20,13 +20,13 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.net.InetSocketAddress;
+import java.net.NetPermission;
+import java.net.SocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
-import java.nio.channels.AsynchronousChannelGroup;
-import java.nio.channels.AsynchronousServerSocketChannel;
-import java.nio.channels.AsynchronousSocketChannel;
-import java.nio.channels.CompletionHandler;
+import java.nio.channels.*;
 import java.nio.charset.StandardCharsets;
+import java.security.Permission;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -39,23 +39,23 @@ public class Server {
     private static final ExecutorService EXECUTOR_SERVICE = Executors.newVirtualThreadExecutor();
 
     private final HttpAnnotationHandlerFactory httpFactory;
-    private final String host;
-    private final int port;
+    private final HostPortConfig hostPortConfig;
 
-    public Server(HttpAnnotationHandlerFactory httpFactory, String host, int port) {
+    public Server(HttpAnnotationHandlerFactory httpFactory, HostPortConfig hostPortConfig) {
         this.httpFactory = httpFactory;
-        this.host = host;
-        this.port = port;
+        this.hostPortConfig = hostPortConfig;
     }
 
     public void bootstrap() {
         try {
+            InetSocketAddress local = new InetSocketAddress(this.hostPortConfig.getHost(), this.hostPortConfig.getPort());
             AsynchronousChannelGroup asynchronousChannelGroup = AsynchronousChannelGroup.withThreadPool(EXECUTOR_SERVICE);
             final AsynchronousServerSocketChannel server = AsynchronousServerSocketChannel
                     .open(asynchronousChannelGroup)
-                    .bind(new InetSocketAddress(this.host, this.port));
+                    .bind(local);
             server.setOption(StandardSocketOptions.SO_REUSEADDR, true);
             server.setOption(StandardSocketOptions.SO_RCVBUF, 1024);
+            SocketAddress localAddress = server.getLocalAddress();
             while (server.isOpen()) {
                 Future<AsynchronousSocketChannel> accept = server.accept();
                 handleClient(accept.join(), httpFactory);
